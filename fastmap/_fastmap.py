@@ -1,3 +1,4 @@
 class FastMap:
 
-    def __init__(self, dim, ):
+    def __init__(self, dim, distance):
+

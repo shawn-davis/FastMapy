@@ -45,7 +45,7 @@ class Jaccard(Distance):
     def distance(self, x, y):
         x, y = _match_inputs(x, y, self.shingle_size)
         d = self._d(x, y)
-        return d(x, y)
+        return d
 
     def _jac_set(self, x, y):
         intersect = len(x.intersection(y))
