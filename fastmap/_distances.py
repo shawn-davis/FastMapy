@@ -20,5 +20,5 @@ class Distance(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def distance(self, x, y) -> float:
+    def calculate(self, x, y) -> float:
         pass

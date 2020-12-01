@@ -25,7 +25,11 @@ def _match_inputs(x, y, shingle_size):
 class Jaccard(Distance):
 
     def __init__(self, shingle_size=4):
-        self.shingle_size = shingle_size
+        self._shingle_size = shingle_size
+
+    @property
+    def shingle_size(self):
+        return self._shingle_size
 
     def _d(self, x, y):
 
@@ -42,7 +46,7 @@ class Jaccard(Distance):
     def get_name():
         return 'Jaccard'
 
-    def distance(self, x, y):
+    def calculate(self, x, y) -> float:
         x, y = _match_inputs(x, y, self.shingle_size)
         d = self._d(x, y)
         return d
@@ -55,8 +59,8 @@ class Jaccard(Distance):
         return 1 - intersect / union
 
     def _jac_str(self, x, y):
-        x_set = shingler(x, shingle_size=self.shingle_size)
-        y_set = shingler(y, shingle_size=self.shingle_size)
+        x_set = shingler(x, shingle_size=self._shingle_size)
+        y_set = shingler(y, shingle_size=self._shingle_size)
         return self._jac_set(x_set, y_set)
 
     def _jac_dict(self, x, y):

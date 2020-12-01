@@ -20,7 +20,7 @@ class Lev(Distance):
     def get_name():
         return 'Levenshtein'
 
-    def distance(self, x, y):
+    def calculate(self, x, y) -> float:
         s1, s2 = _match_inputs(x, y)
 
         s1_len = len(s1)

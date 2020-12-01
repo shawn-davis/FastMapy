@@ -23,7 +23,7 @@ class L2(Distance):
     def get_name():
         return "L2"
 
-    def distance(self, x, y) -> float:
+    def calculate(self, x, y) -> float:
 
         if not (is_list_like(x, allow_sets=False) and is_list_like(y, allow_sets=False)):
             raise InputError("Cosine distance needs to be non-set, list like objects")
