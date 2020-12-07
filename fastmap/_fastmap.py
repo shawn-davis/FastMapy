@@ -6,28 +6,33 @@ from math import sqrt
 from dataclasses import dataclass
 from typing import List
 import random
-from pandas.api.types import is_list_like
+from utils import is_list_like
+
 
 class ModelError(Exception):
 
     def __init__(self, message):
         self.message = message
 
+
 @dataclass
 class Pivots:
     left: object
+    left_proj: np.ndarray
     right: object
+    right_proj: np.ndarray
     distance: float
 
 
 class FastMap:
 
-    def __init__(self, dim, distance, iters=5, cores=1):
+    def __init__(self, dim, distance, dist_args=dict(), obj_transformer=None, iters=5, cores=1):
         self._dim = dim
-        self._distance = distance
+        self._distance = distance(**dist_args)
+        self._obj_transformer = obj_transformer
         self._iters = iters
         self._cores = cores
-        self._pivots: List[Pivots]  = []#[None for _ in range(dim)]
+        self._pivots: List[Pivots] = []
 
     @property
     def dim(self):
@@ -52,29 +57,29 @@ class FastMap:
         else:
             print("Please enter an int greater than 0")
 
-    def _compute_proj_i(self, index, piv_dist, left, right, obj, obj_proj):
-        left_dist = self.dist(left, left.proj, obj, obj_proj, index)
-        right_dist = self.dist(right, right.proj, obj, obj_proj, index)
-        numer = pow(left_dist, 2) + pow(piv_dist, 2) - pow(right_dist, 2)
-        denom = 2 * piv_dist
+    def _compute_proj_i(self, index, pivots, obj, obj_proj):
+
+        left_dist = self._dist(pivots.left, pivots.left_proj, obj, obj_proj, index)
+        right_dist = self._dist(pivots.right, pivots.right_proj, obj, obj_proj, index)
+        numer = pow(left_dist, 2) + pow(pivots.distance, 2) - pow(right_dist, 2)
+        denom = 2 * pivots.distance
         return numer / denom
 
     def _i_proj(self, obj, index):
-        assert len(self.pivots) >= index
+        assert len(self._pivots) >= index
         x_proj = np.zeros(self._dim)
         for i in range(0, index):
-            left = self._pivots[i].left
-            right = self._pivots[i].right
-            piv_dist = self._pivots[i].dist
-            x_proj[i] = self._compute_proj_i(index, piv_dist, left, right, obj, x_proj)
+            x_proj[i] = self._compute_proj_i(index, self._pivots[i], obj, x_proj)
         return x_proj
 
     def _dist(self, x, x_proj, y, y_proj, index):
-        d_sq = pow(self._distance(x, y), 2)
+        d_sq = pow(self._distance.calculate(x, y), 2)
         diff_sq = sum([pow(x_i - y_i, 2) for (x_i, y_i) in zip(x_proj[0:index], y_proj[0:index])])
         return sqrt(max(d_sq - diff_sq, 0))
 
     def fit(self, X):
+        if self._obj_transformer is not None:
+            X = [self._obj_transformer(x) for x in X]
         self._pivots: List[Pivots] = []
         if self._cores == 1:
             self._serial_pivot_finder(X)
@@ -86,13 +91,27 @@ class FastMap:
         if len(self._pivots) != self._dim:
             raise ModelError("Model not built or deficient")
         if is_list_like(X):
-            return [self._i_proj(x, self._dim) for x in X]
+            if self._obj_transformer is not None:
+                X = [self._obj_transformer(x) for x in X]
+            if self._cores == 1:
+                return [self._i_proj(x, self._dim) for x in X]
+            else:
+                return self._parallel_transform(X)
         else:
+            if self._obj_transformer is not None:
+                X = self._obj_transformer(X)
             return self._i_proj(X, self._dim)
+
+    def _parallel_transform(self, X):
+        with Executor(max_workers=self._cores) as executor:
+            map_results = executor.map(lambda x: (x[0], self._i_proj(x[1], self._dim)), enumerate(X))
+            map_results = list(map_results)
+            map_results.sort(key=lambda x: x[0])
+        return [result[1] for result in map_results]
 
     def fit_transform(self, X):
         self._pivots: List[Pivots] = []
-        self.fit(X).transform(X)
+        return self.fit(X).transform(X)
 
     def _serial_pivot_finder(self, X):
 
@@ -115,8 +134,10 @@ class FastMap:
                         max_dist = d
             print('Left Pivot: ' + str(left_pivot_index) + '\nRight Pivot: ' + str(right_pivot_index))
             left = X[left_pivot_index]
+            left_proj = self._i_proj(left, k)
             right = X[right_pivot_index]
-            final_pivots = Pivots(left, right, max_dist)
+            right_proj = self._i_proj(right, k)
+            final_pivots = Pivots(left, left_proj, right, right_proj, max_dist)
             self._pivots.insert(k, final_pivots)
 
     def _parallel_pivot_finder(self, X):
@@ -137,15 +158,19 @@ class FastMap:
                         distributor[key].append(value)
 
                     reduced = executor.map(self._reducer, distributor.items())
-                    reduced.sort(key=lambda x: -x[1])
-                right_pivot_index, max_dist = reduced[0]
+                right_pivot_index = -1
+                max_dist = -1
+                for (idx, dist) in reduced:
+                    if dist > max_dist:
+                        right_pivot_index = idx
+                        max_dist = dist
             print('Left Pivot: ' + str(left_pivot_index) + '\nRight Pivot: ' + str(right_pivot_index))
             left = X[left_pivot_index]
+            left_proj = self._i_proj(left, k)
             right = X[right_pivot_index]
-            final_pivots = Pivots(left, right, max_dist)
+            right_proj = self._i_proj(right, k)
+            final_pivots = Pivots(left, left_proj, right, right_proj, max_dist)
             self._pivots.insert(k, final_pivots)
-
-
 
     def _mapper(self, entry):
         right_candidate, i, left_pivot, k = entry

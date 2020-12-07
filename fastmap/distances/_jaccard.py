@@ -1,6 +1,5 @@
 from fastmap import Distance
 from utils import shingler
-from functools import reduce
 
 
 def _weight_set(x):
@@ -66,5 +65,9 @@ class Jaccard(Distance):
     def _jac_dict(self, x, y):
         keyset = {*x.keys()}.union(*y.keys())
         min_maxes = [(min(x.get(key, 0), y.get(key, 0)), max(x.get(key, 0), y.get(key, 0))) for key in keyset]
-        min_sum, max_sum = reduce(lambda a, b: (a[0] + b[0], a[1], b[1]), min_maxes, (0, 0))
+        min_sum = 0
+        max_sum = 0
+        for (mini, maxi) in min_maxes:
+            min_sum += mini
+            max_sum += maxi
         return 1 - min_sum / max_sum
