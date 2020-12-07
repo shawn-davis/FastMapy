@@ -8,7 +8,7 @@ HERE = pathlib.Path(__file__).parent
 README = (HERE / "README.md").read_text()
 
 setup(
-    name='Foobarred',
+    name='FastMapy',
     version='0.0.1',
     packages=['utils', 'fastmap', 'fastmap.distances'],
     url='https://github.com/shawn-davis/FastMapy',
