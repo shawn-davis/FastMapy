@@ -104,6 +104,11 @@ celerybeat.pid
 # Environments
 .env
 .venv
+.ruff_cache/
+coverage.xml
+.coverage
+.coverage.*
+htmlcov/
 env/
 venv/
 ENV/

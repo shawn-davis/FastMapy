@@ -1,21 +1,20 @@
-from fastmap import Distance, InputError
-from pandas.api.types import is_list_like
-from math import sqrt, pow
+from math import pow, sqrt
 
+from fastmap._distances import Distance, InputError
 from fastmap.distances._helpers import _match_vec_inputs
+from utils import is_list_like
 
 
 def _d(x, y):
     if isinstance(x, dict):
         all_keys = {*x}.union({*y})
-        diffs = [x.get(key, 0)-y.get(key, 0) for key in all_keys]
+        diffs = [x.get(key, 0) - y.get(key, 0) for key in all_keys]
     else:
         diffs = [xi - yi for (xi, yi) in zip(x, y)]
     return sqrt(sum([pow(diff, 2) for diff in diffs]))
 
 
 class L2(Distance):
-
     def __init__(self):
         pass
 
@@ -25,8 +24,10 @@ class L2(Distance):
 
     def calculate(self, x, y) -> float:
 
-        if not (is_list_like(x, allow_sets=False) and is_list_like(y, allow_sets=False)):
-            raise InputError("Cosine distance needs to be non-set, list like objects")
+        if not (
+            (isinstance(x, dict) or is_list_like(x)) and (isinstance(y, dict) or is_list_like(y))
+        ):
+            raise InputError("L2 distance needs non-set, list-like objects")
 
         x, y = _match_vec_inputs(x, y)
         d = _d(x, y)

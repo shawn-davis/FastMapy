@@ -1,38 +1,91 @@
-from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor as Executor
 import multiprocessing
-import numpy as np
-from math import sqrt
-from dataclasses import dataclass
-from typing import List
 import random
+from concurrent.futures import ThreadPoolExecutor as Executor
+from dataclasses import dataclass
+from math import sqrt
+
+import numpy as np
+
 from utils import is_list_like
 
 
 class ModelError(Exception):
-
-    def __init__(self, message):
-        self.message = message
+    """Raised when a FastMap model cannot be fitted or used."""
 
 
 @dataclass
 class Pivots:
     left: object
+    left_index: int
     left_proj: np.ndarray
     right: object
+    right_index: int
     right_proj: np.ndarray
     distance: float
 
 
 class FastMap:
+    def __init__(self, dim, distance, dist_args=None, obj_transformer=None, iters=5, cores=1):
+        if not isinstance(dim, int) or isinstance(dim, bool) or dim < 1:
+            raise ValueError("dim must be a positive integer")
+        if not callable(distance):
+            raise TypeError("distance must be a callable distance-metric class")
+        if dist_args is not None and not isinstance(dist_args, dict):
+            raise TypeError("dist_args must be a dictionary or None")
+        if obj_transformer is not None and not callable(obj_transformer):
+            raise TypeError("obj_transformer must be callable or None")
+        if not isinstance(iters, int) or isinstance(iters, bool) or iters < 1:
+            raise ValueError("iters must be a positive integer")
 
-    def __init__(self, dim, distance, dist_args=dict(), obj_transformer=None, iters=5, cores=1):
         self._dim = dim
-        self._distance = distance(**dist_args)
+        self._distance = distance(**(dist_args or {}))
         self._obj_transformer = obj_transformer
         self._iters = iters
-        self._cores = cores
-        self._pivots: List[Pivots] = []
+        self._pivots: list[Pivots] = []
+        self._pivot_pair_collisions: list[int] = []
+        self.cores = cores
+
+    @classmethod
+    def fit_many(
+        cls,
+        X,
+        count,
+        dim,
+        distance,
+        dist_args=None,
+        obj_transformer=None,
+        iters=5,
+        cores=1,
+        pair_retries=10,
+    ):
+        """Fit several distinct models while avoiding repeated pivot pairs.
+
+        Models receive distinct starting indexes at every dimension. If a candidate pair
+        matches a pair already reserved by an earlier model, only that dimension is retried.
+        A collision is retained after ``pair_retries`` attempts when no distinct pair is found.
+        """
+        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+            raise ValueError("count must be a positive integer")
+        if not isinstance(pair_retries, int) or isinstance(pair_retries, bool) or pair_retries < 1:
+            raise ValueError("pair_retries must be a positive integer")
+        try:
+            X = list(X)
+        except TypeError as error:
+            raise TypeError("X must be an iterable of objects") from error
+        if count > len(X):
+            raise ValueError("count cannot exceed the number of training objects")
+
+        models = [
+            cls(dim, distance, dist_args, obj_transformer, iters, cores) for _ in range(count)
+        ]
+        for model in models:
+            model._validate_training_data(X)
+
+        reserved_pairs = set()
+        used_starts = [set() for _ in range(dim)]
+        for model in models:
+            model._fit_with_reservations(X, reserved_pairs, used_starts, pair_retries)
+        return models
 
     @property
     def dim(self):
@@ -52,12 +105,19 @@ class FastMap:
 
     @cores.setter
     def cores(self, new_cores):
-        if new_cores > 0 and isinstance(new_cores, int):
+        if isinstance(new_cores, int) and not isinstance(new_cores, bool) and new_cores > 0:
             self._cores = min(new_cores, multiprocessing.cpu_count())
         else:
-            print("Please enter an int greater than 0")
+            raise ValueError("cores must be a positive integer")
+
+    @property
+    def pivot_pair_collisions(self):
+        """Dimensions where batch fitting exhausted its distinct-pair retries."""
+        return tuple(self._pivot_pair_collisions)
 
     def _compute_proj_i(self, index, pivots, obj, obj_proj):
+        if pivots.distance == 0:
+            return 0.0
 
         left_dist = self._dist(pivots.left, pivots.left_proj, obj, obj_proj, index)
         right_dist = self._dist(pivots.right, pivots.right_proj, obj, obj_proj, index)
@@ -78,9 +138,12 @@ class FastMap:
         return sqrt(max(d_sq - diff_sq, 0))
 
     def fit(self, X):
-        if self._obj_transformer is not None:
-            X = [self._obj_transformer(x) for x in X]
-        self._pivots: List[Pivots] = []
+        try:
+            X = list(X)
+        except TypeError as error:
+            raise TypeError("X must be an iterable of objects") from error
+
+        X = self._prepare_training_data(X)
         if self._cores == 1:
             self._serial_pivot_finder(X)
         else:
@@ -104,82 +167,116 @@ class FastMap:
 
     def _parallel_transform(self, X):
         with Executor(max_workers=self._cores) as executor:
-            map_results = executor.map(lambda x: (x[0], self._i_proj(x[1], self._dim)), enumerate(X))
-            map_results = list(map_results)
-            map_results.sort(key=lambda x: x[0])
-        return [result[1] for result in map_results]
+            return list(executor.map(lambda obj: self._i_proj(obj, self._dim), X))
 
     def fit_transform(self, X):
-        self._pivots: List[Pivots] = []
+        X = list(X)
         return self.fit(X).transform(X)
 
-    def _serial_pivot_finder(self, X):
+    def _validate_training_data(self, X):
+        if len(X) <= self._dim:
+            raise ValueError("X must contain more objects than the requested dimensions")
 
+    def _prepare_training_data(self, X):
+        self._validate_training_data(X)
+        if self._obj_transformer is not None:
+            X = [self._obj_transformer(x) for x in X]
+        self._pivots = []
+        self._pivot_pair_collisions = []
+        return X
+
+    def _fit_with_reservations(self, X, reserved_pairs, used_starts, pair_retries):
+        X = self._prepare_training_data(X)
+        N = len(X)
+        executor = Executor(max_workers=self._cores) if self._cores > 1 else None
+        try:
+            for k in range(self._dim):
+                selected = None
+                last_result = None
+                last_start = None
+                attempted_starts = set()
+                for _ in range(pair_retries):
+                    start_index = self._batch_start_index(N, used_starts[k], attempted_starts)
+                    if start_index is None:
+                        break
+                    attempted_starts.add(start_index)
+                    last_start = start_index
+                    result = self._find_pivot_pair(X, k, start_index, executor)
+                    last_result = result
+                    pair = frozenset(result[:2])
+                    if pair not in reserved_pairs:
+                        selected = result
+                        used_starts[k].add(start_index)
+                        reserved_pairs.add(pair)
+                        break
+                if selected is None:
+                    selected = last_result
+                    used_starts[k].add(last_start)
+                    self._pivot_pair_collisions.append(k)
+                self._append_pivots(X, k, *selected)
+        finally:
+            if executor is not None:
+                executor.shutdown()
+        return self
+
+    @staticmethod
+    def _batch_start_index(N, used_starts, attempted_starts):
+        available = sorted(set(range(N)) - used_starts - attempted_starts)
+        if not available:
+            return None
+        return random.choice(available)
+
+    def _serial_pivot_finder(self, X):
         N = len(X)
         for k in range(self._dim):
-            print('Working on ' + str(k) + 'D projection')
-            left_pivot_index = random.randint(0, N)
-            right_pivot_index = left_pivot_index
-            for m in range(self._iters):
-                left_pivot_index = right_pivot_index
-                left_pivot = X[left_pivot_index]
-                max_dist = 0.0
-                for i in range(N):
-                    right_candidate = X[i]
-                    left_proj = self._i_proj(left_pivot, k)
-                    right_proj = self._i_proj(right_candidate, k)
-                    d = self._dist(left_pivot, left_proj, right_candidate, right_proj, k)
-                    if d > max_dist:
-                        right_pivot_index = i
-                        max_dist = d
-            print('Left Pivot: ' + str(left_pivot_index) + '\nRight Pivot: ' + str(right_pivot_index))
-            left = X[left_pivot_index]
-            left_proj = self._i_proj(left, k)
-            right = X[right_pivot_index]
-            right_proj = self._i_proj(right, k)
-            final_pivots = Pivots(left, left_proj, right, right_proj, max_dist)
-            self._pivots.insert(k, final_pivots)
+            result = self._find_pivot_pair(X, k, random.randrange(N))
+            self._append_pivots(X, k, *result)
 
     def _parallel_pivot_finder(self, X):
-
         N = len(X)
-        for k in range(self._dim):
-            print('Working on ' + str(k) + 'D projection')
-            left_pivot_index = random.randint(0, N)
-            right_pivot_index = left_pivot_index
-            for m in range(self._iters):
-                left_pivot_index = right_pivot_index
-                left_pivot = X[left_pivot_index]
-                with Executor(max_workers=self._cores) as executor:
-                    map_results = executor.map(self._mapper, [(X[i], i, left_pivot, k) for i in range(N)])
+        with Executor(max_workers=self._cores) as executor:
+            for k in range(self._dim):
+                result = self._find_pivot_pair(X, k, random.randrange(N), executor)
+                self._append_pivots(X, k, *result)
 
-                    distributor = defaultdict(list)
-                    for key, value in map_results:
-                        distributor[key].append(value)
+    def _find_pivot_pair(self, X, k, start_index, executor=None):
+        left_pivot_index = start_index
+        right_pivot_index = start_index
+        max_dist = 0.0
+        for _ in range(self._iters):
+            left_pivot_index = right_pivot_index
+            left_pivot = X[left_pivot_index]
+            left_proj = self._i_proj(left_pivot, k)
+            if executor is None:
+                distances = (
+                    self._distance_to_pivot((candidate, index, left_pivot, left_proj, k))
+                    for index, candidate in enumerate(X)
+                )
+            else:
+                distances = executor.map(
+                    self._distance_to_pivot,
+                    [
+                        (candidate, index, left_pivot, left_proj, k)
+                        for index, candidate in enumerate(X)
+                    ],
+                )
+            right_pivot_index, max_dist = max(distances, key=lambda item: item[1])
+        return left_pivot_index, right_pivot_index, max_dist
 
-                    reduced = executor.map(self._reducer, distributor.items())
-                right_pivot_index = -1
-                max_dist = -1
-                for (idx, dist) in reduced:
-                    if dist > max_dist:
-                        right_pivot_index = idx
-                        max_dist = dist
-            print('Left Pivot: ' + str(left_pivot_index) + '\nRight Pivot: ' + str(right_pivot_index))
-            left = X[left_pivot_index]
-            left_proj = self._i_proj(left, k)
-            right = X[right_pivot_index]
-            right_proj = self._i_proj(right, k)
-            final_pivots = Pivots(left, left_proj, right, right_proj, max_dist)
-            self._pivots.insert(k, final_pivots)
+    def _append_pivots(self, X, k, left_pivot_index, right_pivot_index, max_dist):
+        left = X[left_pivot_index]
+        left_proj = self._i_proj(left, k)
+        right = X[right_pivot_index]
+        right_proj = self._i_proj(right, k)
+        self._pivots.insert(
+            k,
+            Pivots(
+                left, left_pivot_index, left_proj, right, right_pivot_index, right_proj, max_dist
+            ),
+        )
 
-    def _mapper(self, entry):
-        right_candidate, i, left_pivot, k = entry
-        left_proj = self._i_proj(left_pivot, k)
+    def _distance_to_pivot(self, entry):
+        right_candidate, index, left_pivot, left_proj, k = entry
         right_proj = self._i_proj(right_candidate, k)
         d = self._dist(left_pivot, left_proj, right_candidate, right_proj, k)
-        return i % (self._cores * 4), (i, d)
-
-    def _reducer(self, entry):
-        (_, distances) = entry
-        distances.sort(key=lambda x: -x[1])
-        return distances[0]
+        return index, d

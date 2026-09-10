@@ -1,11 +1,11 @@
 from collections import abc
+
 import numpy as np
-from typing import Set
 
 
 def gen_flatten(iterables):
     """
-    General purpose collection flattener that returns a list of the objects from the second-level iterables.
+    General-purpose collection flattener for objects from second-level iterables.
     Parameters
     ----------
     iterables: The iterable of iterables to flatten
@@ -18,7 +18,7 @@ def gen_flatten(iterables):
     return list(flattened)
 
 
-def shingler(s, shingle_size: int) -> Set[str]:
+def shingler(s, shingle_size: int) -> set[str]:
     """
     Shingles the string of the input by the parameterized shingle-size.
     Parameters
@@ -33,12 +33,14 @@ def shingler(s, shingle_size: int) -> Set[str]:
     input_string = str(s)
     if shingle_size >= len(input_string):
         return set(input_string)
-    return set([input_string[i:i+shingle_size] for i in range(len(input_string) - shingle_size + 1)])
+    return set(
+        [input_string[i : i + shingle_size] for i in range(len(input_string) - shingle_size + 1)]
+    )
 
 
 def is_list_like(obj) -> bool:
     """
-    Adapted from Pandas is_list_like. Excludes dict and sets to focus on ordered list-like objects only.
+    Adapted from Pandas is_list_like; excludes dictionaries and sets.
 
     Parameters
     ----------

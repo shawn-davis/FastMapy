@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "FastMapy"
+version = "0.0.1"
+description = "Python implementation of the FastMap multidimensional-scaling technique."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+authors = [
+  { name = "Shawn Davis", email = "shawndavis.lomod@gmail.com" },
+]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+  "numpy>=1.22",
+]
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2",
+  "pytest>=8,<9",
+  "ruff>=0.8",
+]
+metrics = [
+  "scipy>=1.9",
+]
+plots = [
+  "matplotlib>=3.6",
+  "scikit-learn>=1.2",
+  "umap-learn>=0.5",
+]
+all = [
+  "scipy>=1.9",
+  "matplotlib>=3.6",
+  "scikit-learn>=1.2",
+  "umap-learn>=0.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/shawn-davis/FastMapy"
+Repository = "https://github.com/shawn-davis/FastMapy"
+
+[tool.setuptools]
+packages = ["fastmap", "fastmap.distances", "utils"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py39"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"fastmap/__init__.py" = ["F401"]
+"fastmap/distances/__init__.py" = ["F401"]
+"utils/__init__.py" = ["F401"]

@@ -1,7 +1,8 @@
-from fastmap import Distance, InputError
-from math import sqrt, log, exp
-from utils import is_list_like
+from math import sqrt
+
+from fastmap._distances import Distance, InputError
 from fastmap.distances._helpers import _match_vec_inputs
+from utils import is_list_like
 
 
 def _norm(x):
@@ -26,23 +27,29 @@ def _d(x, y):
 
     dot = _dot(x, y)
 
-    log_sim = log(dot) - log(norm_x) - log(norm_y)
-    sim = exp(log_sim)
+    if norm_x == 0 and norm_y == 0:
+        return 0.0
+    if norm_x == 0 or norm_y == 0:
+        return sqrt(2)
+
+    sim = dot / (norm_x * norm_y)
+    sim = min(max(sim, -1.0), 1.0)
     return sqrt(2 * (1 - sim))
 
 
 class Cosine(Distance):
-
     def __init__(self):
         pass
 
     @staticmethod
     def get_name():
-        return 'Cosine'
+        return "Cosine"
 
     def calculate(self, x, y) -> float:
 
-        if not (is_list_like(x, allow_sets=False) and is_list_like(y, allow_sets=False)):
+        if not (
+            (isinstance(x, dict) or is_list_like(x)) and (isinstance(y, dict) or is_list_like(y))
+        ):
             raise InputError("Cosine distance needs to be non-set, list like objects")
 
         x, y = _match_vec_inputs(x, y)

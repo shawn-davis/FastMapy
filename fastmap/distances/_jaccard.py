@@ -1,4 +1,4 @@
-from fastmap import Distance
+from fastmap._distances import Distance, InputError
 from utils import shingler
 
 
@@ -6,23 +6,27 @@ def _weight_set(x):
     return {el: 1 for el in x}
 
 
+def _to_set(value, shingle_size):
+    if isinstance(value, str):
+        return shingler(value, shingle_size=shingle_size)
+    if isinstance(value, set):
+        return value
+    raise InputError("Jaccard distance needs strings, sets, or dictionaries")
+
+
+def _to_weighted_set(value, shingle_size):
+    if isinstance(value, dict):
+        return value
+    return _weight_set(_to_set(value, shingle_size))
+
+
 def _match_inputs(x, y, shingle_size):
-    if type(x) == type(y):
-        return x, y
-    elif isinstance(x, str) or isinstance(y, str):
-        coll, string = (x, y) if isinstance(y, str) else (y, x)
-        shingled = shingler(string, shingle_size=shingle_size)
-        if isinstance(coll, set):
-            return shingled, coll
-        else:
-            return _weight_set(shingled), coll
-    else:
-        dictionary, coll = (x, y) if isinstance(x, dict) else (y, x)
-        return _weight_set(coll), dictionary
+    if isinstance(x, dict) or isinstance(y, dict):
+        return _to_weighted_set(x, shingle_size), _to_weighted_set(y, shingle_size)
+    return _to_set(x, shingle_size), _to_set(y, shingle_size)
 
 
 class Jaccard(Distance):
-
     def __init__(self, shingle_size=4):
         self._shingle_size = shingle_size
 
@@ -32,18 +36,13 @@ class Jaccard(Distance):
 
     def _d(self, x, y):
 
-        _JAC_SWITCH = {
-            set: self._jac_set,
-            str: self._jac_str,
-            dict: self._jac_dict
-        }
-
-        func = _JAC_SWITCH[type(x)]
-        return func(x, y)
+        if isinstance(x, dict):
+            return self._jac_dict(x, y)
+        return self._jac_set(x, y)
 
     @staticmethod
     def get_name():
-        return 'Jaccard'
+        return "Jaccard"
 
     def calculate(self, x, y) -> float:
         x, y = _match_inputs(x, y, self.shingle_size)
@@ -55,19 +54,16 @@ class Jaccard(Distance):
         size1 = len(x)
         size2 = len(y)
         union = size1 + size2 - intersect
-        return 1 - intersect / union
-
-    def _jac_str(self, x, y):
-        x_set = shingler(x, shingle_size=self._shingle_size)
-        y_set = shingler(y, shingle_size=self._shingle_size)
-        return self._jac_set(x_set, y_set)
+        return 0.0 if union == 0 else 1 - intersect / union
 
     def _jac_dict(self, x, y):
-        keyset = {*x.keys()}.union(*y.keys())
-        min_maxes = [(min(x.get(key, 0), y.get(key, 0)), max(x.get(key, 0), y.get(key, 0))) for key in keyset]
+        keyset = x.keys() | y.keys()
+        min_maxes = [
+            (min(x.get(key, 0), y.get(key, 0)), max(x.get(key, 0), y.get(key, 0))) for key in keyset
+        ]
         min_sum = 0
         max_sum = 0
-        for (mini, maxi) in min_maxes:
+        for mini, maxi in min_maxes:
             min_sum += mini
             max_sum += maxi
-        return 1 - min_sum / max_sum
+        return 0.0 if max_sum == 0 else 1 - min_sum / max_sum

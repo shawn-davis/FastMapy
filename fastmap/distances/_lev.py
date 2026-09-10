@@ -2,23 +2,20 @@ from fastmap import Distance
 
 
 def _match_inputs(x, y):
-    if type(x) == type(y):
-        return x, y
-    elif isinstance(x, str) or isinstance(y, str):
-        coll, string = (x, y) if isinstance(y, str) else (y, x)
-        return coll, [ch for ch in string]
-    else:
-        return x, y
+    if isinstance(x, str) and not isinstance(y, str):
+        return list(x), y
+    if isinstance(y, str) and not isinstance(x, str):
+        return x, list(y)
+    return x, y
 
 
 class Lev(Distance):
-
     def __init__(self):
         pass
 
     @staticmethod
     def get_name():
-        return 'Levenshtein'
+        return "Levenshtein"
 
     def calculate(self, x, y) -> float:
         s1, s2 = _match_inputs(x, y)
@@ -36,8 +33,8 @@ class Lev(Distance):
                 if char1 == char2:
                     new_distances.append(distances[index1])
                 else:
-                    new_distances.append(1 + min((distances[index1],
-                                                  distances[index1 + 1],
-                                                  new_distances[-1])))
+                    new_distances.append(
+                        1 + min((distances[index1], distances[index1 + 1], new_distances[-1]))
+                    )
             distances = new_distances
         return distances[-1]

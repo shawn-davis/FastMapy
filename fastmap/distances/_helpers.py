@@ -6,12 +6,13 @@ def _to_dict(x):
 
 
 def _match_vec_inputs(x, y):
-
-    if type(x) == type(y):
+    """Normalize dense and sparse vector pairs to compatible representations."""
+    if isinstance(x, dict) and isinstance(y, dict):
         return x, y
-    elif isinstance(x, dict) or isinstance(y, dict):
-        d, coll = (x, y) if isinstance(x, dict) else (y, x)
-        return d, _to_dict(coll)
-    else:
-        assert len(x) == len(y), "Non-set, non-dict list-like inputs must have the same length"
-        return x, y
+    if isinstance(x, dict):
+        return x, _to_dict(y)
+    if isinstance(y, dict):
+        return _to_dict(x), y
+    if len(x) != len(y):
+        raise ValueError("Dense vectors must have the same length")
+    return x, y
