@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "FastMapy"
-version = "0.0.1"
+version = "0.1.0"
 description = "Python implementation of the FastMap multidimensional-scaling technique."
 readme = "README.md"
 requires-python = ">=3.9"
