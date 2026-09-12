@@ -45,6 +45,25 @@ def test_jaccard_handles_empty_and_mixed_weighted_inputs():
     assert metric.calculate("ab", {"a": 1, "b": 1}) == 0
 
 
+def test_jaccard_reuses_cached_string_shingles(monkeypatch):
+    import fastmap.distances._jaccard as module
+
+    module._string_shingles.cache_clear()
+    calls = []
+    original = module.shingler
+
+    def counting_shingler(value, shingle_size):
+        calls.append(value)
+        return original(value, shingle_size)
+
+    monkeypatch.setattr(module, "shingler", counting_shingler)
+    metric = Jaccard(shingle_size=2)
+    metric.calculate("abcd", "abce")
+    metric.calculate("abce", "abcd")
+
+    assert calls == ["abcd", "abce"]
+
+
 def test_distance_names_are_public_and_stable():
     assert L1().get_name() == "L1"
     assert L2().get_name() == "L2"
