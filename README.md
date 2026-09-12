@@ -113,5 +113,9 @@ and retains all prior dimensions. When no distinct pair can be found within `pai
 retained and reported by the model's `pivot_pair_collisions` property. `count` cannot exceed the number of training
 objects.
 
+## License
+
+FastMapy is licensed under the [Apache License, Version 2.0](LICENSE).
+
 ## References
 <b id="f1">1</b> Proceedings of the 1995 ACM SIGMOD international conference on Management of data  - SIGMOD  ’95. (1995). doi:10.1145/223784 [↩](#a1)

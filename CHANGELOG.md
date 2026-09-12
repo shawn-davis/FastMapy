@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.1 - 2026-09-11
+
+### Changed
+
+- Re-licensed FastMapy under the Apache License, Version 2.0.
+
 ### Added
 
 - Modern Python packaging, local development dependencies, GitHub Actions CI, and an automated test suite.
