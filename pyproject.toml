@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "FastMapy"
-version = "0.1.0"
+version = "0.1.1"
 description = "Python implementation of the FastMap multidimensional-scaling technique."
 readme = "README.md"
 requires-python = ">=3.9"
-license = "GPL-3.0-only"
+license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [
   { name = "Shawn Davis", email = "shawndavis.lomod@gmail.com" },
