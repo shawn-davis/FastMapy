@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0 - 2026-09-22
+
 ### Added
 
 - Versioned model persistence through `FastMap.save` and `FastMap.load`.
