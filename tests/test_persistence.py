@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from fastmap import FastMap
-from fastmap._fastmap import ModelError
+from fastmap._fastmap import _MODEL_FORMAT, _MODEL_FORMAT_VERSION, ModelError
 from fastmap.distances import L2, Jaccard
 
 
@@ -45,4 +45,24 @@ def test_load_rejects_non_fastmapy_data(tmp_path):
         pickle.dump({"format": "something-else"}, model_file)
 
     with pytest.raises(ModelError, match="not a FastMapy model"):
+        FastMap.load(path)
+
+
+def test_load_rejects_malformed_fitted_model(monkeypatch, tmp_path):
+    vectors = [[0.0, 0.0], [3.0, 4.0], [6.0, 8.0]]
+    monkeypatch.setattr("fastmap._fastmap.random.randrange", lambda count: 0)
+    model = FastMap(dim=1, distance=L2, iters=2).fit(vectors)
+    model._pivots[0] = object()
+    path = tmp_path / "malformed.fastmap"
+    with path.open("wb") as model_file:
+        pickle.dump(
+            {
+                "format": _MODEL_FORMAT,
+                "format_version": _MODEL_FORMAT_VERSION,
+                "model": model,
+            },
+            model_file,
+        )
+
+    with pytest.raises(ModelError, match="invalid pivot"):
         FastMap.load(path)

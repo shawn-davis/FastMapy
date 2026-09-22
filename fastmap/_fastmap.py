@@ -5,6 +5,7 @@ import random
 from concurrent.futures import ThreadPoolExecutor as Executor
 from dataclasses import dataclass
 from math import sqrt
+from numbers import Real
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -182,9 +183,53 @@ class FastMap:
         model = payload.get("model")
         if not isinstance(model, cls):
             raise ModelError("Persisted model has an invalid type")
-        if not isinstance(model._pivots, list) or len(model._pivots) != model._dim:
-            raise ModelError("Persisted model is not fully fitted")
+        cls._validate_loaded_model(model)
         return model
+
+    @staticmethod
+    def _validate_loaded_model(model):
+        """Reject persisted state that cannot safely support transformation."""
+        if not isinstance(getattr(model, "_dim", None), int) or isinstance(model._dim, bool):
+            raise ModelError("Persisted model has an invalid dimension")
+        if model._dim < 1:
+            raise ModelError("Persisted model has an invalid dimension")
+        if not isinstance(getattr(model, "_iters", None), int) or model._iters < 1:
+            raise ModelError("Persisted model has invalid iteration settings")
+        if not isinstance(getattr(model, "_cores", None), int) or model._cores < 1:
+            raise ModelError("Persisted model has invalid core settings")
+        if not callable(getattr(getattr(model, "_distance", None), "calculate", None)):
+            raise ModelError("Persisted model has an invalid distance metric")
+        transformer = getattr(model, "_obj_transformer", None)
+        if transformer is not None and not callable(transformer):
+            raise ModelError("Persisted model has an invalid object transformer")
+        if not isinstance(getattr(model, "_pivots", None), list):
+            raise ModelError("Persisted model is not fully fitted")
+        if len(model._pivots) != model._dim:
+            raise ModelError("Persisted model is not fully fitted")
+        if not isinstance(getattr(model, "_pivot_pair_collisions", None), list):
+            raise ModelError("Persisted model has invalid collision data")
+
+        for pivot in model._pivots:
+            if not isinstance(pivot, Pivots):
+                raise ModelError("Persisted model has an invalid pivot")
+            if not all(
+                isinstance(index, int) and not isinstance(index, bool) and index >= 0
+                for index in (pivot.left_index, pivot.right_index)
+            ):
+                raise ModelError("Persisted model has invalid pivot indexes")
+            if not isinstance(pivot.distance, Real):
+                raise ModelError("Persisted model has an invalid pivot distance")
+            if not all(
+                isinstance(projection, np.ndarray) and projection.shape == (model._dim,)
+                for projection in (pivot.left_proj, pivot.right_proj)
+            ):
+                raise ModelError("Persisted model has invalid pivot projections")
+
+        if not all(
+            isinstance(index, int) and not isinstance(index, bool) and 0 <= index < model._dim
+            for index in model._pivot_pair_collisions
+        ):
+            raise ModelError("Persisted model has invalid collision data")
 
     def _compute_proj_i(self, index, pivots, obj, obj_proj):
         if pivots.distance == 0:
