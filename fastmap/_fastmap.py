@@ -1,8 +1,13 @@
 import multiprocessing
+import os
+import pickle
 import random
 from concurrent.futures import ThreadPoolExecutor as Executor
 from dataclasses import dataclass
 from math import sqrt
+from numbers import Real
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 import numpy as np
 
@@ -11,6 +16,10 @@ from utils import is_list_like
 
 class ModelError(Exception):
     """Raised when a FastMap model cannot be fitted or used."""
+
+
+_MODEL_FORMAT = "fastmapy.model"
+_MODEL_FORMAT_VERSION = 1
 
 
 @dataclass
@@ -114,6 +123,113 @@ class FastMap:
     def pivot_pair_collisions(self):
         """Dimensions where batch fitting exhausted its distinct-pair retries."""
         return tuple(self._pivot_pair_collisions)
+
+    def save(self, path):
+        """Persist a fitted model to ``path``.
+
+        The model is stored with Python pickle in a versioned FastMapy envelope. Only
+        load files from trusted sources. Custom distance classes and object transformers
+        must be importable module-level objects when the model is loaded.
+        """
+        if len(self._pivots) != self._dim:
+            raise ModelError("Only a fully fitted model can be saved")
+
+        destination = Path(path)
+        if destination.exists() and destination.is_dir():
+            raise IsADirectoryError(f"Model path is a directory: {destination}")
+
+        temporary_path = None
+        try:
+            with NamedTemporaryFile("wb", dir=destination.parent, delete=False) as temporary:
+                temporary_path = Path(temporary.name)
+                pickle.dump(
+                    {
+                        "format": _MODEL_FORMAT,
+                        "format_version": _MODEL_FORMAT_VERSION,
+                        "model": self,
+                    },
+                    temporary,
+                    protocol=pickle.HIGHEST_PROTOCOL,
+                )
+                temporary.flush()
+                os.fsync(temporary.fileno())
+            os.replace(temporary_path, destination)
+        except (OSError, pickle.PickleError, TypeError, AttributeError) as error:
+            raise ModelError(f"Unable to save model to {destination}") from error
+        finally:
+            if temporary_path is not None and temporary_path.exists():
+                temporary_path.unlink()
+        return self
+
+    @classmethod
+    def load(cls, path):
+        """Load a model saved with :meth:`save`.
+
+        Pickle loading can execute code, so ``path`` must refer to a model file from a
+        trusted source. The persisted format version is checked before returning it.
+        """
+        source = Path(path)
+        try:
+            with source.open("rb") as model_file:
+                payload = pickle.load(model_file)
+        except (OSError, EOFError, pickle.UnpicklingError, AttributeError, ImportError) as error:
+            raise ModelError(f"Unable to load model from {source}") from error
+
+        if not isinstance(payload, dict) or payload.get("format") != _MODEL_FORMAT:
+            raise ModelError("File is not a FastMapy model")
+        if payload.get("format_version") != _MODEL_FORMAT_VERSION:
+            raise ModelError("Unsupported FastMapy model format version")
+
+        model = payload.get("model")
+        if not isinstance(model, cls):
+            raise ModelError("Persisted model has an invalid type")
+        cls._validate_loaded_model(model)
+        return model
+
+    @staticmethod
+    def _validate_loaded_model(model):
+        """Reject persisted state that cannot safely support transformation."""
+        if not isinstance(getattr(model, "_dim", None), int) or isinstance(model._dim, bool):
+            raise ModelError("Persisted model has an invalid dimension")
+        if model._dim < 1:
+            raise ModelError("Persisted model has an invalid dimension")
+        if not isinstance(getattr(model, "_iters", None), int) or model._iters < 1:
+            raise ModelError("Persisted model has invalid iteration settings")
+        if not isinstance(getattr(model, "_cores", None), int) or model._cores < 1:
+            raise ModelError("Persisted model has invalid core settings")
+        if not callable(getattr(getattr(model, "_distance", None), "calculate", None)):
+            raise ModelError("Persisted model has an invalid distance metric")
+        transformer = getattr(model, "_obj_transformer", None)
+        if transformer is not None and not callable(transformer):
+            raise ModelError("Persisted model has an invalid object transformer")
+        if not isinstance(getattr(model, "_pivots", None), list):
+            raise ModelError("Persisted model is not fully fitted")
+        if len(model._pivots) != model._dim:
+            raise ModelError("Persisted model is not fully fitted")
+        if not isinstance(getattr(model, "_pivot_pair_collisions", None), list):
+            raise ModelError("Persisted model has invalid collision data")
+
+        for pivot in model._pivots:
+            if not isinstance(pivot, Pivots):
+                raise ModelError("Persisted model has an invalid pivot")
+            if not all(
+                isinstance(index, int) and not isinstance(index, bool) and index >= 0
+                for index in (pivot.left_index, pivot.right_index)
+            ):
+                raise ModelError("Persisted model has invalid pivot indexes")
+            if not isinstance(pivot.distance, Real):
+                raise ModelError("Persisted model has an invalid pivot distance")
+            if not all(
+                isinstance(projection, np.ndarray) and projection.shape == (model._dim,)
+                for projection in (pivot.left_proj, pivot.right_proj)
+            ):
+                raise ModelError("Persisted model has invalid pivot projections")
+
+        if not all(
+            isinstance(index, int) and not isinstance(index, bool) and 0 <= index < model._dim
+            for index in model._pivot_pair_collisions
+        ):
+            raise ModelError("Persisted model has invalid collision data")
 
     def _compute_proj_i(self, index, pivots, obj, obj_proj):
         if pivots.distance == 0:

@@ -117,5 +117,18 @@ objects.
 
 FastMapy is licensed under the [Apache License, Version 2.0](LICENSE).
 
+## Model persistence
+
+Save a fitted model and restore it later with the versioned persistence API:
+
+```python
+model.save("jaccard.fastmap")
+restored = fastmap.FastMap.load("jaccard.fastmap")
+embedding = restored.transform(new_strings)
+```
+
+Model files use Python pickle and must only be loaded from trusted sources. Custom distance classes and object
+transformers must be importable module-level objects in the environment that loads the model.
+
 ## References
 <b id="f1">1</b> Proceedings of the 1995 ACM SIGMOD international conference on Management of data  - SIGMOD  ’95. (1995). doi:10.1145/223784 [↩](#a1)
