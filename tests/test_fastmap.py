@@ -65,6 +65,25 @@ def test_fit_handles_identical_objects():
     assert np.allclose(embedding, 0)
 
 
+def test_distance_cache_reuses_symmetric_metric_evaluations():
+    calls = []
+
+    class CountingDistance(L2):
+        def calculate(self, left, right):
+            calls.append((id(left), id(right)))
+            return super().calculate(left, right)
+
+    vectors = [[0.0], [1.0], [2.0]]
+    model = FastMap(dim=1, distance=CountingDistance, iters=1, cache_distances=True)
+    model.fit(vectors)
+    model._metric_distance(vectors[0], vectors[1])
+    before_reverse = len(calls)
+    model._metric_distance(vectors[1], vectors[0])
+
+    assert len(calls) == before_reverse
+    assert model.cache_distances
+
+
 @pytest.mark.parametrize("dim", [0, -1, 1.5, True])
 def test_dimension_must_be_a_positive_integer(dim):
     with pytest.raises(ValueError, match="positive integer"):

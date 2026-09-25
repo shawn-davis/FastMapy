@@ -34,7 +34,10 @@ class Pivots:
 
 
 class FastMap:
-    def __init__(self, dim, distance, dist_args=None, obj_transformer=None, iters=5, cores=1):
+    def __init__(
+        self, dim, distance, dist_args=None, obj_transformer=None, iters=5, cores=1,
+        cache_distances=False,
+    ):
         if not isinstance(dim, int) or isinstance(dim, bool) or dim < 1:
             raise ValueError("dim must be a positive integer")
         if not callable(distance):
@@ -45,6 +48,8 @@ class FastMap:
             raise TypeError("obj_transformer must be callable or None")
         if not isinstance(iters, int) or isinstance(iters, bool) or iters < 1:
             raise ValueError("iters must be a positive integer")
+        if not isinstance(cache_distances, bool):
+            raise TypeError("cache_distances must be a boolean")
 
         self._dim = dim
         self._distance = distance(**(dist_args or {}))
@@ -52,6 +57,8 @@ class FastMap:
         self._iters = iters
         self._pivots: list[Pivots] = []
         self._pivot_pair_collisions: list[int] = []
+        self._cache_distances = cache_distances
+        self._distance_cache = {}
         self.cores = cores
 
     @classmethod
@@ -66,6 +73,7 @@ class FastMap:
         iters=5,
         cores=1,
         pair_retries=10,
+        cache_distances=False,
     ):
         """Fit several distinct models while avoiding repeated pivot pairs.
 
@@ -85,7 +93,8 @@ class FastMap:
             raise ValueError("count cannot exceed the number of training objects")
 
         models = [
-            cls(dim, distance, dist_args, obj_transformer, iters, cores) for _ in range(count)
+            cls(dim, distance, dist_args, obj_transformer, iters, cores, cache_distances)
+            for _ in range(count)
         ]
         for model in models:
             model._validate_training_data(X)
@@ -107,6 +116,11 @@ class FastMap:
     @property
     def iters(self):
         return self._iters
+
+    @property
+    def cache_distances(self):
+        """Whether this model memoizes exact object-pair metric evaluations."""
+        return self._cache_distances
 
     @property
     def cores(self):
@@ -249,9 +263,33 @@ class FastMap:
         return x_proj
 
     def _dist(self, x, x_proj, y, y_proj, index):
-        d_sq = pow(self._distance.calculate(x, y), 2)
+        d_sq = pow(self._metric_distance(x, y), 2)
         diff_sq = sum([pow(x_i - y_i, 2) for (x_i, y_i) in zip(x_proj[0:index], y_proj[0:index])])
         return sqrt(max(d_sq - diff_sq, 0))
+
+    def _metric_distance(self, x, y):
+        """Return a symmetric metric value, optionally memoized by object identity.
+
+        FastMap repeatedly compares training objects with the same pivots while
+        fitting and transforming them. Identity keys support unhashable objects
+        and avoid assuming equality is inexpensive. Cached entries retain both
+        objects so their ids cannot be recycled while the cache is live. This is
+        opt-in because callers with mutable objects may want fresh measurements.
+        """
+        if not self._cache_distances:
+            return self._distance.calculate(x, y)
+        x_id, y_id = id(x), id(y)
+        key = (x_id, y_id) if x_id <= y_id else (y_id, x_id)
+        cached = self._distance_cache.get(key)
+        if cached is not None:
+            return cached[2]
+        value = self._distance.calculate(x, y)
+        self._distance_cache[key] = (x, y, value)
+        return value
+
+    def clear_distance_cache(self):
+        """Discard memoized metric values to release their retained objects."""
+        self._distance_cache.clear()
 
     def fit(self, X):
         try:
@@ -299,6 +337,7 @@ class FastMap:
             X = [self._obj_transformer(x) for x in X]
         self._pivots = []
         self._pivot_pair_collisions = []
+        self.clear_distance_cache()
         return X
 
     def _fit_with_reservations(self, X, reserved_pairs, used_starts, pair_retries):

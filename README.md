@@ -93,6 +93,12 @@ repeatability should control Python's random-number generator before fitting.
 `cores` enables threaded fitting and transformation. It defaults to `1`; any speedup depends on the distance metric and
 runtime.
 
+For immutable training objects with an expensive distance metric, pass
+`cache_distances=True` to `FastMap` or `FastMap.fit_many`. It memoizes exact
+object-pair metric values by identity, avoiding repeated pivot comparisons while
+keeping the cache linear in the number of comparisons rather than materializing a
+pairwise distance matrix. Do not enable it for objects that may change in place.
+
 ### Fitting a batch of distinct models
 
 Use `FastMap.fit_many` to fit several models with identical settings against one training collection:
