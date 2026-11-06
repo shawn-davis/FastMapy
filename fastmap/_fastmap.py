@@ -26,7 +26,13 @@ class Pivots:
 
 class FastMap:
     def __init__(
-        self, dim, distance, dist_args=None, obj_transformer=None, iters=5, cores=1,
+        self,
+        dim,
+        distance,
+        dist_args=None,
+        obj_transformer=None,
+        iters=5,
+        cores=1,
         cache_distances=False,
     ):
         if not isinstance(dim, int) or isinstance(dim, bool) or dim < 1:
