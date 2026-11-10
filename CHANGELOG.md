@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.3.0 - 2026-11-10
+
+### Added
+
+- Opt-in distance caching for immutable training objects through `cache_distances=True` in `FastMap` and `FastMap.fit_many`.
+
+### Changed
+
+- Jaccard distance reuses cached shingles for repeated string comparisons.
+- FastMapy now requires Python 3.11 or newer.
+
 ## 0.2.0 - 2026-09-22
 
 ### Added
