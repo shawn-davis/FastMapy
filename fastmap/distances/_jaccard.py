@@ -1,5 +1,13 @@
+from functools import lru_cache
+
 from fastmap._distances import Distance, InputError
 from utils import shingler
+
+
+@lru_cache(maxsize=32_768)
+def _string_shingles(value, shingle_size):
+    """Memoize immutable shingle sets for repeated string comparisons."""
+    return frozenset(shingler(value, shingle_size=shingle_size))
 
 
 def _weight_set(x):
@@ -8,7 +16,7 @@ def _weight_set(x):
 
 def _to_set(value, shingle_size):
     if isinstance(value, str):
-        return shingler(value, shingle_size=shingle_size)
+        return _string_shingles(value, shingle_size)
     if isinstance(value, set):
         return value
     raise InputError("Jaccard distance needs strings, sets, or dictionaries")
