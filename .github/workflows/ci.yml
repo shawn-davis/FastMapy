@@ -7,12 +7,11 @@ on:
 
 jobs:
   checks:
-    # Python 3.9 is available on Ubuntu 24.04.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.13"]
+        python-version: ["3.11", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
